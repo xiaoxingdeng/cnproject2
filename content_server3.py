@@ -4,12 +4,12 @@ import time
 import argparse
 import os
 
-configdict = {}
-BUFSIZE = 1024
-SERVER_HOST = 'localhost'
+BUFSIZE = 1024  # size of receiving buffer
+SERVER_HOST = socket.gethostbyname(socket.gethostname())
 configdict = {}
 mapdict = {"map": {}}
 messagedict = {}
+
 
 def open_config(filename, configdict):
     with open(filename, "r") as f:
@@ -33,11 +33,13 @@ def open_config(filename, configdict):
                 configdict[newline[0]] = newline[1]
         configdict["neighbors"] = neighbors
 
+
 def openserver(SERVER_PORT):
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_address = (SERVER_HOST, SERVER_PORT)
     s.bind(server_address)
+    print(f"[LISTENNING] Server is listenning on  {server_address}")
     while True:
         data, address = s.recvfrom(BUFSIZE)
         string_data = data.decode('utf-8')
@@ -55,134 +57,10 @@ def openserver(SERVER_PORT):
             send_data = 'Successfully add'
             s.sendto(send_data.encode('utf-8'), address)
         elif string_data[0:7] == 'Map_msg':
-             handle_message(string_data)
+            handle_message(string_data)
 
         elif string_data[0:7] == 'Del_msg':
-             handle_delmessage(string_data)
-def detectalive_single(key):
-    global configdict
-    global mapdict
-    neighbors = configdict['neighbors']
-    entry = neighbors[key]
-    hostname = 'localhost'
-    ip = socket.gethostbyname(hostname)
-    port_char = entry[2]
-    port = int(port_char)
-
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    send_data = 'Liveness'
-    s.settimeout(0.5)
-    s.sendto(send_data.encode('utf-8'), (ip, port))
-    try:
-        data, address = s.recvfrom(BUFSIZE)
-        string_data = data.decode('utf-8')
-        if string_data != entry[5]:
-            entry[5] = string_data
-        # if entry[4] != 0:
-        #     thread_client = threading.Thread(target=send_dict_confirm, args=(entry,))
-        #     thread_client.start()
-        if entry[4] == 3:
-            entry[4] = 0
-            update_mystate()
-            broadcast_mymap()
-        else:
-            entry[4] = 0
-    except socket.timeout:
-        if entry[4] < 3:
-            if entry[4] == 2:
-                entry[4] += 1
-                update_mystate()
-                broadcast_mymap()
-                map = mapdict['map']
-                if entry[5] in map:
-                    del map[entry[5]]
-                broadcast_mydel(entry[5])
-            else:
-                entry[4] += 1
-    s.close()
-
-def detectalive_all():
-    neighbors = configdict["neighbors"]
-    while True:
-        time.sleep(3)
-        for key, item in neighbors.items():
-            thread_client = threading.Thread(target=detectalive_single, args=(key,))
-            thread_client.start()
-
-def send_adddict(infordict):
-    ip = socket.gethostbyname('localhost')
-    port = int(infordict['backend_port'])
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    send_data = 'Add_dict' + ' ' + configdict['uuid'] + ' ' + 'localhost' + ' ' + str(
-        configdict['backend_port']) + ' ' + infordict['metric']
-    s.settimeout(0.5)
-    while True:
-        try:
-            s.sendto(send_data.encode('utf-8'), (ip, port))
-            data, address = s.recvfrom(BUFSIZE)
-            break
-        except socket.timeout:
-            time.sleep(3)
-            continue
-    s.close()
-
-def add_neighbor(addmessage):
-    information = addmessage.split(' ')
-    infordict = {}
-    for infor in information:
-        splitinfor = infor.split('=')
-        infordict[splitinfor[0]] = splitinfor[1]
-    add_adddict(infordict)
-    thread_send_adddict = threading.Thread(target=send_adddict, args=(infordict,))
-    thread_send_adddict.start()
-
-def add_adddict(infordict):
-    global configdict
-    for entry in configdict["neighbors"].values():
-        if entry[0] == infordict['uuid']:
-            return
-    newentry = []
-    newentry.append(infordict['uuid'])
-    newentry.append(infordict['host'])
-    newentry.append(infordict['backend_port'])
-    newentry.append(infordict['metric'])
-    newentry.append(3)
-    newentry.append('')
-    newentry.append(0)
-    configdict['peer_count'] += 1
-    configdict['neighbors']['peer_' + str(configdict['peer_count'])] = newentry
-
-def update_mystate():
-    global mapdict
-    map = mapdict['map']
-    mystatedict = {}
-    neighbors = configdict["neighbors"]
-    for value in neighbors.values():
-        if value[4] < 3:
-            mystatedict[value[5]] = int(value[3])
-    map[configdict['name']] = mystatedict
-
-def broadcast_mymap():
-    neighbors = configdict["neighbors"]
-    for key, item in neighbors.items():
-        thread_client = threading.Thread(target=send_map, args=(key,))
-        thread_client.start()
-
-def send_map(key):
-    global configdict
-    neighbors = configdict['neighbors']
-    entry = neighbors[key]
-    ip = socket.gethostbyname('localhost')
-    port_char = entry[2]
-    port = int(port_char)
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    send_data = 'Map_msg' + ' ' + configdict['name'] + ' ' + str(entry[6]) + ' ' + str(mapdict['map'][configdict['name']])
-    entry[6] += 1
-    s.sendto(send_data.encode('utf-8'), (ip, port))
-    s.close()
+            handle_delmessage()
 
 def handle_message(string_data):
     global mapdict
@@ -201,6 +79,7 @@ def handle_message(string_data):
     else:
         entry[datalist[1]] = md
         forward_all(string_data, datalist[1])
+
 
 def forward_all(string_data,name):
     neighbors = configdict["neighbors"]
@@ -223,6 +102,185 @@ def forward_single(key,string_data,name):
     s.sendto(string_data.encode('utf-8'), (ip, port))
     s.close()
 
+def handle_delmessage(string_data):
+    global mapdict
+    global messagedict
+    datalist = string_data.split(" ", 3)
+    if datalist[1] in messagedict:
+        if messagedict[datalist[1]] >= int(datalist[2]):
+            return
+        del messagedict[datalist[1]]
+    entry = mapdict['map']
+    if datalist[1] in entry:
+        del entry[datalist[1]]
+    print(string_data)
+    forward_all(string_data, datalist[1])
+
+
+
+
+def detectalive_single(key):
+    global configdict
+    global mapdict
+    neighbors = configdict['neighbors']
+    entry = neighbors[key]
+    hostname = 'localhost'
+    ip = socket.gethostbyname(hostname)
+    port_char = entry[2]
+    port = int(port_char)
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    send_data = 'Liveness'
+    s.settimeout(0.5)
+    s.sendto(send_data.encode('utf-8'), (ip, port))
+    try:
+        data, address = s.recvfrom(BUFSIZE)
+        string_data = data.decode('utf-8')
+        if string_data != entry[5]:
+            entry[5] = string_data
+        if entry[4] != 0:
+            thread_client = threading.Thread(target=send_dict_confirm, args=(entry,))
+            thread_client.start()
+        if entry[4] == 3:
+            entry[4] = 0
+            update_mystate()
+            broadcast_mymap()
+        else:
+            entry[4] = 0
+    except socket.timeout:
+        if entry[4] < 3:
+            if entry[4] == 2:
+                entry[4] += 1
+                update_mystate()
+                broadcast_mymap()
+                map = mapdict['map']
+                if configdict['name'] in map:
+                    del map[entry[5]]
+                broadcast_mydel(entry[5])
+            else:
+                entry[4] += 1
+    s.close()
+
+def send_dict_confirm(entry):
+    ip = socket.gethostbyname(entry[1])
+    port = int(entry[2])
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    send_data = 'Add_dict' + ' ' + configdict['uuid'] + ' ' + 'localhost' + ' ' + str(
+        configdict['backend_port']) + ' ' + entry[3]
+    s.settimeout(0.5)
+    while True:
+        try:
+            s.sendto(send_data.encode('utf-8'), (ip, port))
+            data, address = s.recvfrom(BUFSIZE)
+            break
+        except socket.timeout:
+            time.sleep(3)
+            continue
+    s.close()
+
+def detectalive_all():
+    neighbors = configdict["neighbors"]
+    while True:
+        time.sleep(3)
+        for key, item in neighbors.items():
+            thread_client = threading.Thread(target=detectalive_single, args=(key,))
+            thread_client.start()
+
+
+def print_allneighbors():
+    neighbors = configdict["neighbors"]
+    printneighbors = {}
+    for value in neighbors.values():
+        if value[4] < 3:
+            entry = {"uuid": value[0], "host": value[1], "backend_port": int(value[2]), "metric": int(value[3])}
+            printneighbors[value[5]] = entry
+    printobject = {}
+    printobject["neighbors"] = printneighbors
+    print(printobject)
+
+
+
+def send_adddict(infordict):
+    ip = socket.gethostbyname(infordict['host'])
+    port = int(infordict['backend_port'])
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    send_data = 'Add_dict' + ' ' + configdict['uuid'] + ' ' + 'localhost' + ' ' + str(
+        configdict['backend_port']) + ' ' + infordict['metric']
+    s.settimeout(0.5)
+    while True:
+        try:
+            s.sendto(send_data.encode('utf-8'), (ip, port))
+            data, address = s.recvfrom(BUFSIZE)
+            break
+        except socket.timeout:
+            time.sleep(3)
+            continue
+    s.close()
+
+
+def add_adddict(infordict):
+    global configdict
+    for entry in configdict["neighbors"].values():
+        if entry[0] == infordict['uuid']:
+            return
+    newentry = []
+    newentry.append(infordict['uuid'])
+    newentry.append(infordict['host'])
+    newentry.append(infordict['backend_port'])
+    newentry.append(infordict['metric'])
+    newentry.append(3)
+    newentry.append('')
+    newentry.append(0)
+    configdict['peer_count'] += 1
+    configdict['neighbors']['peer_' + str(configdict['peer_count'])] = newentry
+
+
+def add_neighbor(addmessage):
+    information = addmessage.split(' ')
+    infordict = {}
+    for infor in information:
+        splitinfor = infor.split('=')
+        infordict[splitinfor[0]] = splitinfor[1]
+    add_adddict(infordict)
+    thread_send_adddict = threading.Thread(target=send_adddict, args=(infordict,))
+    thread_send_adddict.start()
+
+
+def update_mystate():
+    global mapdict
+    map = mapdict['map']
+    mystatedict = {}
+    neighbors = configdict["neighbors"]
+    for value in neighbors.values():
+        if value[4] < 3:
+            mystatedict[value[5]] = int(value[3])
+    map[configdict['name']] = mystatedict
+
+def broadcast_mymap():
+    neighbors = configdict["neighbors"]
+    for key, item in neighbors.items():
+        thread_client = threading.Thread(target=send_map, args=(key,))
+        thread_client.start()
+
+def send_map(key):
+    global configdict
+    neighbors = configdict['neighbors']
+    entry = neighbors[key]
+    hostname = 'loaclhost'
+    ip = socket.gethostbyname(hostname)
+    port_char = entry[2]
+    port = int(port_char)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    send_data = 'Map_msg' + ' ' + configdict['name'] + ' ' + str(entry[6]) + ' ' + str(mapdict['map'][configdict['name']])
+    entry[6] += 1
+    s.sendto(send_data.encode('utf-8'), (ip, port))
+    s.close()
+
+
 def broadcast_mydel(name):
     neighbors = configdict["neighbors"]
     for key, item in neighbors.items():
@@ -243,39 +301,6 @@ def send_del(key,name):
     entry[6] += 1
     s.sendto(send_data.encode('utf-8'), (ip, port))
     s.close()
-
-def handle_delmessage(string_data):
-    global mapdict
-    global messagedict
-    datalist = string_data.split(" ", 3)
-    if datalist[1] in messagedict:
-        if messagedict[datalist[1]] >= int(datalist[2]):
-            return
-        del messagedict[datalist[1]]
-    entry = mapdict['map']
-    if datalist[3] in entry:
-        del entry[datalist[3]]
-    forward_all(string_data, datalist[1])
-
-def handele_input():
-    str = input()
-    if str == 'uuid':
-        neighbor = {}
-        neighbor['uuid'] = configdict["uuid"]
-        print(neighbor, end='\n')
-    elif str == 'neighbors':
-        print_allneighbors()
-    elif str[0:11] == 'addneighbor':
-        arg = str.split(" ", 1)
-        add_neighbor(arg[1])
-    elif str == 'map':
-        print(mapdict, end='\n')
-    elif str == 'rank':
-        rank()
-    elif str == 'kill':
-        os._exit(0)
-    elif str == "infor":
-        print(configdict)
 
 def rank():
     update_mystate()
@@ -305,26 +330,23 @@ def rank():
         del processing[name]
     newdict={"rank":determined}
     print(newdict, end='\n')
-
-
-def print_allneighbors():
-    neighbors = configdict["neighbors"]
-    printneighbors = {}
-    for value in neighbors.values():
-        if value[4] < 3:
-            entry = {"uuid": value[0], "host": value[1], "backend_port": int(value[2]), "metric": int(value[3])}
-            printneighbors[value[5]] = entry
-    printobject = {}
-    printobject["neighbors"] = printneighbors
-    print(printobject, end="\n")
-
-def regular_send():
-    while True:
-        time.sleep(3)
-        update_mystate()
-        broadcast_mymap()
-
-
+def handele_input():
+    str = input()
+    if str == 'uuid':
+        printdict={}
+        printdict['uuid'] = configdict["uuid"]
+        print(printdict, end='\n')
+    elif str =='neighbors':
+        print_allneighbors()
+    elif str[0:11] == 'addneighbor':
+        arg = str.split(" ", 1)
+        add_neighbor(arg[1])
+    elif str == 'map':
+        print(mapdict, end='\n')
+    elif str == 'rank':
+        rank()
+    elif str == 'kill':
+        os._exit(0)
 if __name__ == '__main__':
     arg_finder = argparse.ArgumentParser()
     arg_finder.add_argument('-c', required=True, type=str)
@@ -332,14 +354,13 @@ if __name__ == '__main__':
 
     open_config(args.c, configdict)
     SERVER_PORT = configdict["backend_port"]
+    # start the server to listen
     threadserver = threading.Thread(target=openserver, args=(SERVER_PORT,))
     threadserver.start()
-
+    # detect the liveness of neighbors
     thread_detectalive = threading.Thread(target=detectalive_all)
     thread_detectalive.start()
-
-    thread_update = threading.Thread(target=regular_send)
-    thread_update.start()
-
     while True:
         handele_input()
+
+
